@@ -211,6 +211,40 @@ class RawIngestTask(Task):
         # Add extra parameters to pickle
         return dict(**super()._reduce_kwargs(), butler=self.butler)
 
+    def _determine_instrument_formatter(self, dataId, filename):
+        """Determine the instrument and formatter class.
+
+        Parameters
+        ----------
+        dataId : `DataCoordinate`
+            The dataId associated with this dataset.
+        filename : `str`
+            Filename used for error reporting.
+
+        Returns
+        -------
+        instrument : `Instrument`
+            Instance of the `Instrument` associated with this dataset.
+        formatterClass : `type`
+            Class to be used as the formatter for this dataset
+        """
+        # The data model currently assumes that whilst multiple datasets
+        # can be associated with a single file, they must all share the
+        # same formatter.
+        try:
+            instrument = Instrument.fromName(dataId["instrument"], self.butler.registry)
+        except LookupError as e:
+            self.log.warning("Instrument %s for file %s not known to registry",
+                             dataId["instrument"], filename)
+            if self.config.failFast:
+                raise RuntimeError(f"Instrument {dataId['instrument']} for"
+                                   f" file {filename} not known to registry") from e
+            FormatterClass = Formatter
+            instrument = None
+        else:
+            FormatterClass = instrument.getRawFormatter(dataId)
+        return instrument, FormatterClass
+
     def extractMetadata(self, filename: str) -> RawFileData:
         """Extract and process metadata from a single raw file.
 
@@ -266,7 +300,7 @@ class RawIngestTask(Task):
             self.log.debug("Problem extracting metadata from %s: %s", filename, e)
             # Indicate to the caller that we failed to read
             datasets = []
-            FormatterClass = Formatter
+            formatterClass = Formatter
             instrument = None
             if self.config.failFast:
                 raise RuntimeError(f"Problem extracting metadata from file {filename}") from e
@@ -275,22 +309,12 @@ class RawIngestTask(Task):
             # The data model currently assumes that whilst multiple datasets
             # can be associated with a single file, they must all share the
             # same formatter.
-            try:
-                instrument = Instrument.fromName(datasets[0].dataId["instrument"], self.butler.registry)
-            except LookupError as e:
-                self.log.warning("Instrument %s for file %s not known to registry",
-                                 datasets[0].dataId["instrument"], filename)
-                if self.config.failFast:
-                    raise RuntimeError(f"Instrument {datasets[0].dataId['instrument']} for"
-                                       f" file {filename} not known to registry") from e
+            instrument, formatterClass = self._determine_instrument_formatter(datasets[0].dataId, filename)
+            if instrument is None:
                 datasets = []
-                FormatterClass = Formatter
-                instrument = None
-            else:
-                FormatterClass = instrument.getRawFormatter(datasets[0].dataId)
 
         return RawFileData(datasets=datasets, filename=filename,
-                           FormatterClass=FormatterClass,
+                           FormatterClass=formatterClass,
                            instrumentClass=instrument)
 
     def _calculate_dataset_info(self, header, filename):

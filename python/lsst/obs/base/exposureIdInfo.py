@@ -22,9 +22,10 @@
 __all__ = ["ExposureIdInfo"]
 
 from lsst.daf.butler import DataCoordinate
+from lsst.afw.table import IdFactory
 
 
-class ExposureIdInfo(object):
+class ExposureIdInfo:
     """Struct representing an exposure ID and the number of bits it uses.
 
     Parameters
@@ -50,12 +51,11 @@ class ExposureIdInfo(object):
 
     .. code-block:: python
 
-        from lsst.afw.table import IdFactory, SourceTable
-        sourceIdFactory = IdFactory.makeSource(info.expId, info.unusedBits)
+        from lsst.afw.table import SourceTable
          schema = SourceTable.makeMinimalSchema()
         #...add fields to schema as desired, then...
-        sourceTable = SourceTable.make(self.schema, sourceIdFactory)
-    
+        sourceTable = SourceTable.make(self.schema, info.makeSourceIdFactory())
+
     An `ExposureIdInfo` instance can be obtained from a Gen2 data butler
     ``butler`` and dictionary ``dataId`` that identifies a visit and a detector
     via
@@ -69,7 +69,7 @@ class ExposureIdInfo(object):
     .. code-block:: python
 
         expandedDataId = butler.registry.expandDataId(dataId)
-        info = ExposureIdInfo.fromDataId(expandedDataID, "visit_detector")
+        info = ExposureIdInfo.fromDataId(expandedDataId, "visit_detector")
 
     The first line should be unnecessary for the data IDs passed to
     `~lsst.pipe.base.PipelineTask` methods, as those are already expanded, and
@@ -108,11 +108,11 @@ class ExposureIdInfo(object):
         Parameters
         ----------
         dataId : `lsst.daf.butler.DataCoordinate`
-            A data ID that identifies the dimensions to be packed and contains
-            extra information about the maximum values for those dimensions.
-            An expanded data ID can be obtained from `Registry.expandDataId`,
-            but all data IDs passed to `PipelineTask` methods should already
-            be expanded.
+            An expanded data ID that identifies the dimensions to be packed and
+            contains extra information about the maximum values for those
+            dimensions.  An expanded data ID can be obtained from
+            `Registry.expandDataId`, but all data IDs passed to `PipelineTask`
+            methods should already be expanded.
         name : `str`, optional
             Name of the packer to use.  The set of available packers can be
             found in the data repository's dimension configuration (see
@@ -120,8 +120,13 @@ class ExposureIdInfo(object):
         maxBits : `int`, optional
             Forwarded as the ``__init__`` parameter of the same name.  Should
             usually be unnecessary.
+
+        Returns
+        -------
+        info : `ExposureIdInfo`
+            A new `ExposureIdInfo` instance.
         """
-        if not isinstance(DataCoordinate) or not dataId.hasRecords():
+        if not isinstance(dataId, DataCoordinate) or not dataId.hasRecords():
             raise RuntimeError(
                 "A fully-expanded data ID is required; use "
                 "Registry.expandDataId to obtain one."
@@ -138,3 +143,15 @@ class ExposureIdInfo(object):
             return IdFactory.computeReservedFromMaxBits(self.expBits)
         else:
             return self.maxBits - self.expBits
+
+    def makeSourceIdFactory(self):
+        """Make a `lsst.afw.table.SourceTable.IdFactory` instance from this
+        exposure information.
+
+        Returns
+        -------
+        idFactory : `lsst.afw.table.SourceTable.IdFactory`
+            An ID factory that generates new IDs that fold in the image IDs
+            managed by this object.
+        """
+        return IdFactory.makeSource(self.expId, self.unusedBits)

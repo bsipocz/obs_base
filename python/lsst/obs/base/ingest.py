@@ -40,6 +40,7 @@ from lsst.daf.butler import (
     DimensionUniverse,
     FileDataset,
     Formatter,
+    Progress,
 )
 from lsst.pex.config import Config, ChoiceField, Field
 from lsst.pipe.base import Task
@@ -201,6 +202,7 @@ class RawIngestTask(Task):
         self.butler = butler
         self.universe = self.butler.registry.dimensions
         self.datasetType = self.getDatasetType()
+        self.progress = Progress("obs.base.RawIngestTask")
 
         # Import all the instrument classes so that we ensure that we
         # have all the relevant metadata translators loaded.
@@ -432,7 +434,11 @@ class RawIngestTask(Task):
         # reporting
         good_files = []
         bad_files = []
-        for fileDatum in fileData:
+        try:
+            total = len(files)
+        except TypeError:
+            total = None
+        for fileDatum in self.progress.wrap(fileData, desc="Reading raw image metadata", total=total):
             if not fileDatum.datasets:
                 bad_files.append(fileDatum.filename)
             else:
@@ -543,7 +549,7 @@ class RawIngestTask(Task):
         n_exposures = 0
         n_exposures_failed = 0
         n_ingests_failed = 0
-        for exposure in exposureData:
+        for exposure in self.progress.wrap(exposureData, desc="Ingesting raw exposures"):
 
             self.log.debug("Attempting to ingest %d file%s from exposure %s:%s",
                            len(exposure.files), "" if len(exposure.files) == 1 else "s",
